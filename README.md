@@ -519,6 +519,106 @@ See the `examples/` directory for complete examples:
 - `concert_hall.py` - Large venue simulation
 - `realtime_processing.py` - Live convolution example
 
+### Example: Concert Hall Simulation
+
+This example demonstrates simulating a large venue like a concert hall:
+
+```python
+# Concert hall dimensions: ~50m x 30m x 20m
+hall = Room.dimensions(50, 30, 20)
+
+# Apply concert hall materials
+materials = {
+    SurfaceType.FLOOR: Material("gymnasium_floor", 0.05, 0.10, 0.15, 0.20),
+    SurfaceType.CEILING: Material("concrete", 0.02, 0.02, 0.03, 0.04),
+    SurfaceType.WALL: Material("plaster_smooth", 0.02, 0.03, 0.03, 0.04),
+}
+
+# Set up sources (orchestra)
+orchestra = SoundSource(position=[25, 15, 3], name="Orchestra")
+orchestra.generate_sweep(duration=5.0)
+
+# Set up receiver (audience position)
+audience = Receiver(position=[25, 20, 1.2], orientation=0)
+
+# Run simulation
+config = SimulationConfig.from_preset("ultra")
+config.duration = 4.0  # Longer RIR for large space
+engine = AcousticEngine(config)
+engine.set_room(hall)
+engine.add_source(orchestra)
+engine.add_receiver(audience)
+
+rir = engine.compute_rir()
+metrics = engine.analyze_acoustics()
+```
+
+### Example: Open Office Acoustic Analysis
+
+Simulating a modern open-plan office with partitions:
+
+```python
+# Office layout with obstacles
+from echo_engine.room import RoomBuilder
+
+office = (RoomBuilder()
+          .rectangular(20, 15, 3)
+          .floor("carpet_light")
+          .ceiling("acoustic_tile")
+          .walls("plaster_smooth")
+          .build())
+
+# Add desk partitions as obstacles
+office.add_obstacle(
+    position=np.array([5, 5, 0]),
+    size=np.array([1.2, 0.6, 1.1]),
+    material="chipboard"
+)
+
+# Source at one end
+speaker = SoundSource(
+    position=[2, 7.5, 1.5],
+    directivity=SourceDirectivity.cardioid(axis=(1, 0, 0))
+)
+speaker.generate_sweep(duration=2.0)
+
+# Receiver in work area
+worker = Receiver(position=[10, 7.5, 1.2])
+```
+
+### Example: Anechoic Chamber Comparison
+
+Comparing room acoustics with an anechoic reference:
+
+```python
+# Real room
+real_room = Room.dimensions(8, 6, 3)
+real_room.set_material("floor", "concrete")
+real_room.set_material("ceiling", "concrete")
+real_room.set_material("walls", "concrete")
+
+# Compute RIR for real room
+engine_real = AcousticEngine(config)
+engine_real.set_room(real_room)
+rir_real = engine_real.compute_rir()
+
+# Anechoic (open window) room for reference
+anechoic = Room.dimensions(8, 6, 3)
+anechoic.set_material("floor", "open_window")
+anechoic.set_material("ceiling", "open_window")
+anechoic.set_material("walls", "open_window")
+
+# Compute RIR for anechoic room
+engine_anechoic = AcousticEngine(config)
+engine_anechoic.set_room(anechoic)
+rir_anechoic = engine_anechoic.compute_rir()
+
+# Analyze difference
+real_t60 = compute_rt60(rir_real)
+print(f"Real room T60: {real_t60:.2f}s")
+print(f"Anechoic T60: {compute_rt60(rir_anechoic):.2f}s")
+```
+
 ---
 
 ## Scientific Background
@@ -570,6 +670,255 @@ characterizes the transition between geometric optics ($N >> 1$) and wave diffra
 
 ---
 
+## Detailed Theory
+
+### Geometric Acoustics
+
+Geometric acoustics approximates sound as rays traveling in straight lines, reflecting off surfaces according to the law of reflection:
+
+$$\theta_i = \theta_r$$
+
+where $\theta_i$ is the angle of incidence and $\theta_r$ is the angle of reflection, measured from the surface normal.
+
+#### Energy at Receiver
+
+The acoustic energy arriving at a receiver from a ray path is:
+
+$$E = \frac{E_0}{4\pi r^2} \prod_{i=1}^{n} (1 - \alpha_i) \cdot D(\theta_i)$$
+
+where:
+- $E_0$ is the source energy
+- $r$ is the path length
+- $\alpha_i$ is the absorption coefficient at the $i$-th reflection
+- $D(\theta_i)$ is the source directivity factor
+
+### Wave-Based Methods
+
+Wave-based methods solve the acoustic wave equation directly, capturing phenomena that geometric acoustics cannot:
+
+- **Diffraction**: Bending of waves around edges
+- **Resonance**: Standing waves in enclosed spaces
+- **Interference**: Constructive and destructive superposition
+
+#### FDTD Algorithm
+
+The explicit FDTD update for pressure:
+
+$$p^{n+1}_{i,j,k} = 2p^n_{i,j,k} - p^{n-1}_{i,j,k} + \left(\frac{c\Delta t}{\Delta x}\right)^2 \nabla^2 p^n$$
+
+Stability requires the Courant-Friedrichs-Lewy (CFL) condition:
+
+$$\Delta t \leq \frac{\Delta x}{c\sqrt{3}}$$
+
+#### Perfectly Matched Layer (PML)
+
+PML boundaries absorb outgoing waves without reflection:
+
+$$\frac{\partial p}{\partial t} + \sigma(x) p = -\frac{\partial u}{\partial x}$$
+
+where $\sigma(x)$ is the absorption profile increasing toward the boundary.
+
+### Room Acoustic Parameters
+
+#### Reverberation Time (T60)
+
+The time for sound to decay by 60 dB:
+
+$$T_{60} = \frac{24 \ln(10)}{c \bar{\alpha}}$$
+
+(Sabin) or:
+
+$$T_{60} = \frac{55.2 V}{c S \ln(1-\bar{\alpha})}$$
+
+(Eyring, for small absorption).
+
+#### Clarity Index (C50, C80)
+
+Ratio of early to late energy:
+
+$$C_{t} = 10 \log_{10}\left(\frac{\int_0^t h^2(t) dt}{\int_t^\infty h^2(t) dt}\right)$$
+
+C50 relates to speech intelligibility; C80 to musical clarity.
+
+#### Definition (D50)
+
+Percentage of early energy:
+
+$$D_{50} = \frac{\int_0^{50ms} h^2(t) dt}{\int_0^{\infty} h^2(t) dt}$$
+
+Values > 50% indicate good speech intelligibility.
+
+#### Center Time (Ts)
+
+First moment of the squared impulse response:
+
+$$T_s = \frac{\int_0^{\infty} t \cdot h^2(t) dt}{\int_0^{\infty} h^2(t) dt}$$
+
+Lower values indicate clearer sound.
+
+### Spherical Harmonics Theory
+
+Ambisonics encodes sound using spherical harmonic basis functions.
+
+#### Real Spherical Harmonics
+
+For order $n$ and degree $m$:
+
+$$Y_{nm}(\theta, \phi) = \begin{cases}
+\sqrt{2} N_{nm} \sin(|m|\phi) P_n^{|m|}(\cos\theta) & m < 0 \\
+N_{n0} P_n^0(\cos\theta) & m = 0 \\
+\sqrt{2} N_{nm} \cos(|m|\phi) P_n^{|m|}(\cos\theta) & m > 0
+\end{cases}$$
+
+where $P_n^m$ are associated Legendre polynomials and $N_{nm}$ is normalization.
+
+#### Encoding
+
+The Ambisonics signal for order $n$:
+
+$$B_{nm} = \int_0^{2\pi} \int_0^{\pi} p(\theta, \phi) Y_{nm}^*(\theta, \phi) \sin\theta \, d\theta \, d\phi$$
+
+### HRTF Fundamentals
+
+Head-related transfer functions capture the spectral filtering of the head, torso, and pinnae.
+
+#### Interaural Level Difference (ILD)
+
+The level difference between ears due to head shadowing:
+
+$$ILD(f, \theta) = 20 \log_{10}\frac{|H_{left}(f, \theta)|}{|H_{right}(f, \theta)|}$$
+
+At high frequencies (> 2 kHz), ILD provides localization cues.
+
+#### Interaural Time Difference (ITD)
+
+The phase/time difference between ears:
+
+$$ITD = \frac{a}{c}(\sin\theta + \cos\theta \cdot \arcsin(\frac{\sin\theta}{2}))$$
+
+where $a$ is head radius and $c$ is speed of sound.
+
+#### Pinna Cues
+
+The pinnae create spectral notches and peaks that vary with elevation:
+
+- Concha resonance: ~5 kHz
+- Cavity resonance: ~10 kHz
+- Timbral notch: 6-12 kHz (varies with elevation)
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### Out of Memory Errors
+
+**Problem**: FDTD simulations require large amounts of memory.
+
+**Solution**:
+- Reduce grid resolution (increase `grid_resolution` in config)
+- Use ray tracing instead of wave-based methods
+- Enable chunked processing with streaming
+
+```python
+# Reduce memory usage
+config = SimulationConfig.from_preset("medium")
+config.grid_resolution = 0.1  # 10cm instead of 5cm
+```
+
+#### Slow Simulation Times
+
+**Problem**: Simulation takes too long.
+
+**Solution**:
+- Use quality presets that match your needs
+- Enable GPU acceleration if available
+- Cache RIRs when computing multiple receivers
+
+```python
+# Faster simulation
+config = SimulationConfig.from_preset("low")  # Quick preview
+# Then upgrade for final render
+config = SimulationConfig.from_preset("high")
+```
+
+#### Unstable FDTD Simulation
+
+**Problem**: Results contain NaN or infinity values.
+
+**Solution**:
+- Reduce time step (increase CFL number)
+- Check that grid resolution is uniform
+- Verify material properties are physical
+
+```python
+# Fix stability
+config = SimulationConfig()
+config.courant_number = 0.2  # Reduce from default 0.3
+```
+
+#### Poor HRTF Quality
+
+**Problem**: Binaural audio sounds unnatural.
+
+**Solution**:
+- Use measured HRTFs instead of synthetic model
+- Load SOFA files for personalized HRTFs
+
+```python
+from echo_engine.receiver import HRTFProcessor
+hrtf = HRTFProcessor()
+hrtf.load_sofa_file("personal_hrtf.sofa")
+```
+
+### Performance Tips
+
+1. **Use Quality Presets**: Match preset to development stage
+2. **Cache RIRs**: Don't recompute unchanged configurations
+3. **Batch Processing**: Process multiple sources together
+4. **Parallel Execution**: Use multiple threads for ray tracing
+5. **GPU Acceleration**: Enable with `config.enable_gpu = True`
+
+### Debug Mode
+
+Enable verbose output for troubleshooting:
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Now run simulation with debug output
+engine = AcousticEngine(config)
+```
+
+---
+
+## Frequently Asked Questions
+
+**Q: Can Echo simulate outdoor acoustics?**
+A: Yes, but the room model must be modified. Use a ground plane with appropriate absorption and set room boundaries far from the source.
+
+**Q: How accurate is the FDTD solver?**
+A: FDTD provides physically accurate results limited by grid resolution. Use at least 10 points per wavelength for accurate high-frequency response.
+
+**Q: Can I use custom HRTF measurements?**
+A: Yes, load SOFA format files using `HRTFProcessor.load_sofa_file()`.
+
+**Q: What's the maximum room size?**
+A: Practically limited by memory. A 20m room at 5cm resolution needs ~64M grid points (~500MB).
+
+**Q: Does Echo support non-rectangular rooms?**
+A: Yes, define arbitrary polygon surfaces. Complex geometries may need mesh preprocessing.
+
+**Q: Can I simulate moving sources?**
+A: Yes, use the `DopplerProcessor` or update source positions between frames in animation.
+
+**Q: How do I validate simulation results?**
+A: Compare with measured RIRs, use standard test cases (ISO 3382), and verify against Sabine/Eyring predictions.
+
+---
+
 ## Contributing
 
 Contributions are welcome! Please:
@@ -579,7 +928,36 @@ Contributions are welcome! Please:
 3. Write tests for new features
 4. Submit a pull request
 
-See `CONTRIBUTING.md` for guidelines.
+### Development Setup
+
+```bash
+# Clone your fork
+git clone https://github.com/YOUR_USERNAME/Echo.git
+cd Echo
+
+# Install in development mode
+pip install -e ".[dev]"
+
+# Run tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=echo_engine --cov-report=html
+```
+
+### Code Style
+
+- Follow PEP 8
+- Use type hints where possible
+- Write docstrings for all public functions
+- Add tests for new features
+
+### Pull Request Guidelines
+
+- Reference related issues
+- Update documentation as needed
+- Ensure all tests pass
+- Add entry to CHANGELOG.md
 
 ---
 
