@@ -1,10 +1,30 @@
 # Echo - Acoustic Simulation Engine
 
+[![CI](https://github.com/moggan1337/Echo/actions/workflows/ci.yml/badge.svg)](https://github.com/moggan1337/Echo/actions/workflows/ci.yml)
+
 <p align="center">
   <img src="assets/logo.png" alt="Echo Logo" width="200"/>
 </p>
 
 **Echo** is a comprehensive, open-source acoustic simulation engine written in Python. It provides state-of-the-art algorithms for simulating sound propagation in enclosed spaces, enabling realistic auralization and spatial audio rendering for applications ranging from architectural acoustics to virtual reality.
+
+## 🎬 Demo
+![Echo Demo](demo.gif)
+
+*Acoustic simulation with ray-traced sound propagation*
+
+## Screenshots
+| Component | Preview |
+|-----------|---------|
+| Room Model | ![room](screenshots/room-model.png) |
+| Sound Paths | ![paths](screenshots/sound-paths.png) |
+| Impulse Response | ![ir](screenshots/impulse-response.png) |
+
+## Visual Description
+Room model displays 3D geometry with material annotations. Sound paths visualize acoustic rays bouncing off surfaces with color-coded reflections. Impulse response shows frequency-dependent decay curves.
+
+---
+
 
 ## Table of Contents
 
